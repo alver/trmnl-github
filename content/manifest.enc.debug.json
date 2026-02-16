@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "refresh_rate": 1800,
+  "updated_at": "2026-02-16T21:47:54.558645+00:00",
+  "screens": [
+    {
+      "name": "image",
+      "filename": "image.enc",
+      "size": 48080
+    }
+  ]
+}
