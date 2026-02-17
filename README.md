@@ -36,6 +36,24 @@ upstream branch:
 - Python 3 (venv recommended)
 - `pip install platformio esptool`
 
+## Configure secrets
+
+Copy the example secrets file and fill in your values:
+
+```bash
+cp src/secrets.h.example src/secrets.h
+```
+
+Then edit `src/secrets.h`:
+
+| Define | Description |
+|--------|-------------|
+| `GITHUB_PAGES_MANIFEST_URL` | URL to your encrypted manifest file (built with `./tools/update_manifest.py`) |
+| `GITHUB_PAGES_IMAGES_BASE` | Base URL for encrypted images (created by `./tools/encrypt_image.py`) |
+| `GITHUB_PAGES_AES_KEY_HEX` | 64-character hex string of your 256-bit AES key (generate with `./tools/generate_key.py`) |
+
+`src/secrets.h` is listed in `.gitignore` — never commit real keys or private URLs. The values in `secrets.h` serve as compile-time defaults; they can be overridden at runtime via NVS (see [Device configuration](#device-configuration) below).
+
 ## Build
 
 The build script extracts the upstream firmware and layers your overlay files on top in a `.build` directory:

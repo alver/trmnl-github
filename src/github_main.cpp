@@ -17,6 +17,7 @@
 #include "logo_small.h"
 #include "logo_medium.h"
 #include "loading.h"
+#include "secrets.h"
 
 // ---- Globals required by display.cpp externs ----
 Preferences preferences;
@@ -32,19 +33,6 @@ RTC_DATA_ATTR uint8_t need_to_refresh_display = 1;
 #define PREF_AES_KEY_HEX  "aes_key_hex"
 #define PREF_IMAGES_BASE  "images_base"
 
-// ---- Default config (override via NVS or hardcode for dev) ----
-#ifndef GITHUB_PAGES_MANIFEST_URL
-#define GITHUB_PAGES_MANIFEST_URL "https://raw.githubusercontent.com/alver/trmnl-github/main/content/manifest.enc"
-#endif
-
-#ifndef GITHUB_PAGES_IMAGES_BASE
-#define GITHUB_PAGES_IMAGES_BASE "https://raw.githubusercontent.com/alver/trmnl-github/main/content/images/"
-#endif
-
-// Hardcode AES key hex for development — override in NVS for production
-#ifndef GITHUB_PAGES_AES_KEY_HEX
-#define GITHUB_PAGES_AES_KEY_HEX "0000000000000000000000000000000000000000000000000000000000000000"
-#endif
 
 static unsigned long startup_time = 0;
 static float vBatt = 4.2f;
@@ -217,6 +205,8 @@ void setup()
     }
 
     // ---- Fetch and decrypt manifest ----
+    Log_info("Free heap before download: %d bytes (largest block: %d)",
+             ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     Log_info("Fetching manifest: %s", manifest_url.c_str());
     size_t manifest_enc_size = 0;
     uint8_t *manifest_enc = https_download(manifest_url.c_str(), &manifest_enc_size);

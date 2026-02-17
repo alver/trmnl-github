@@ -15,3 +15,4 @@ sdkconfig.*
 builds/*
 managed_components/
 venv/
+src/secrets.h

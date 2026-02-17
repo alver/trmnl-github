@@ -46,38 +46,61 @@ uint8_t *https_download(const char *url, size_t *out_size)
     int content_size = https.getSize();
     Log_info("Download %s: %d bytes", url, content_size);
 
-    // Use getString() which handles chunked transfer encoding
-    String payload = https.getString();
-    size_t data_len = payload.length();
+    if (content_size <= 0)
+    {
+        Log_error("Invalid content size %d from %s", content_size, url);
+        https.end();
+        client->stop();
+        delete client;
+        return nullptr;
+    }
+
+    // Allocate output buffer first — in PSRAM if available, else regular heap
+    uint8_t *buffer = (uint8_t *)heap_caps_malloc(content_size, MALLOC_CAP_SPIRAM);
+    if (!buffer)
+    {
+        Log_info("PSRAM alloc failed, trying regular heap");
+        buffer = (uint8_t *)malloc(content_size);
+    }
+    if (!buffer)
+    {
+        Log_error("Failed to allocate %d bytes for download buffer", content_size);
+        https.end();
+        client->stop();
+        delete client;
+        return nullptr;
+    }
+
+    // Stream directly into buffer to avoid double allocation from getString()
+    WiFiClient *stream = https.getStreamPtr();
+    size_t bytes_read = 0;
+    while (bytes_read < (size_t)content_size && stream->connected())
+    {
+        size_t available = stream->available();
+        if (available)
+        {
+            size_t to_read = min(available, (size_t)content_size - bytes_read);
+            size_t got = stream->readBytes(buffer + bytes_read, to_read);
+            bytes_read += got;
+        }
+        else
+        {
+            delay(1); // yield to system tasks
+        }
+    }
 
     https.end();
     client->stop();
     delete client;
 
-    if (data_len == 0)
+    if (bytes_read == 0)
     {
         Log_error("Empty response from %s", url);
+        free(buffer);
         return nullptr;
     }
 
-    // Allocate in PSRAM
-    uint8_t *buffer = (uint8_t *)heap_caps_malloc(data_len, MALLOC_CAP_SPIRAM);
-    if (!buffer)
-    {
-        // Fall back to regular heap if no PSRAM
-        Log_info("PSRAM alloc failed, trying regular heap");
-        buffer = (uint8_t *)malloc(data_len);
-    }
-
-    if (!buffer)
-    {
-        Log_error("Failed to allocate %d bytes for download buffer", data_len);
-        return nullptr;
-    }
-
-    memcpy(buffer, payload.c_str(), data_len);
-    *out_size = data_len;
-
-    Log_info("Downloaded %d bytes from %s", data_len, url);
+    *out_size = bytes_read;
+    Log_info("Downloaded %d bytes from %s", bytes_read, url);
     return buffer;
 }

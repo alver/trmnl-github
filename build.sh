@@ -24,10 +24,11 @@ git archive origin/upstream | tar -x -C "$BUILD_DIR"
 
 # Layer 2: overlay files from current branch (overwrites upstream where needed)
 echo "Applying overlay files..."
-git archive HEAD -- \
-    src/ include/ test/ tools/ content-template/ \
-    platformio.ini .gitignore CLAUDE.md \
-    | tar -x -C "$BUILD_DIR"
+# git archive HEAD -- src/ include/ test/ platformio.ini | tar -x -C "$BUILD_DIR"
+cp -rf src/ "$BUILD_DIR"/src/
+cp -rf include/ "$BUILD_DIR"/include/
+cp -rf test/ "$BUILD_DIR"/test
+cp -f platformio.ini "$BUILD_DIR"/platformio.ini
 
 echo ""
 echo "Build directory ready: $BUILD_DIR"
