@@ -92,6 +92,23 @@ static void goToSleep(uint32_t sleep_seconds)
     esp_deep_sleep_start();
 }
 
+// ---- Factory reset: wipe all credentials and restart ----
+// Safe to call at any point — uses its own local Preferences handle so it
+// works whether the global 'preferences' object is open (portal callback path)
+// or not yet opened (SoftReset button path, before preferences.begin()).
+static void resetDeviceCredentials()
+{
+    Log_info("Factory reset: clearing WiFi and NVS, restarting");
+    WifiCaptivePortal.resetSettings();
+    Preferences prefs;
+    if (prefs.begin("data", false))
+    {
+        prefs.clear();
+        prefs.end();
+    }
+    ESP.restart();
+}
+
 // ---- Show error on display and sleep ----
 static void errorAndSleep(MSG msg, uint32_t sleep_seconds)
 {
@@ -133,12 +150,17 @@ void setup()
         switch (button)
         {
         case LongPress:
-            Log_info("Long press: resetting WiFi");
+            Log_info("Long press: resetting WiFi credentials");
             WifiCaptivePortal.resetSettings();
             break;
         case DoubleClick:
-            // Could add special function later; for now just refresh
-            Log_info("Double click: forcing refresh");
+            // Advance to next screen in playlist immediately
+            Log_info("Double click: advancing playlist index");
+            playlist_index = (playlist_index + 1) % 255;  // clamped later vs screen_count
+            break;
+        case SoftReset:
+            Log_info("Soft reset: factory resetting device");
+            resetDeviceCredentials();  // does not return
             break;
         default:
             break;
@@ -155,10 +177,18 @@ void setup()
     // Init display
     display_init();
 
-    // Show loading screen on non-timer wakeups
-    if (wakeup_reason != ESP_SLEEP_WAKEUP_TIMER)
+    // Show loading screen only on GPIO wakeup (button press) or first boot.
+    // Timer wakeups skip straight to download — no extra render means the
+    // partial-refresh ghost counter advances once per cycle, not twice.
+    // Always wait (bWait=true) so the EPD finishes before WiFi/download starts;
+    // sending a second render while the panel is still physically refreshing
+    // causes ghost images from the loading screen bleeding into the content.
+    if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO  ||
+        wakeup_reason == ESP_SLEEP_WAKEUP_EXT0  ||
+        wakeup_reason == ESP_SLEEP_WAKEUP_EXT1  ||
+        wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED)
     {
-        display_show_image(const_cast<uint8_t *>(logo_medium), DEFAULT_IMAGE_SIZE, false);
+        display_show_image(const_cast<uint8_t *>(logo_medium), DEFAULT_IMAGE_SIZE, true);
         need_to_refresh_display = 1;
     }
 
@@ -182,6 +212,7 @@ void setup()
         Log_info("No WiFi saved, starting captive portal");
         display_show_msg(const_cast<uint8_t *>(logo_medium), WIFI_CONNECT,
                          "", false, FW_VERSION_STRING, "");
+        WifiCaptivePortal.setResetSettingsCallback(resetDeviceCredentials);
         if (!WifiCaptivePortal.startPortal())
         {
             WiFi.disconnect(true);
