@@ -40,17 +40,17 @@
 
 ## Phase 3 — Correctness Improvements
 
-- [ ] **3a. Image format handling** — `parseBMPHeader()` is called unconditionally before
+- [x] **3a. Image format handling** ✅ DONE — `parseBMPHeader()` is called unconditionally before
   `display_show_image()`. If users ever produce PNG images from tooling, they are rejected
   with `BMP_NOT_BMP` before the display driver can detect them. Fix: detect magic bytes
   first (`BM` = BMP, `0x89` = PNG) and only call `parseBMPHeader()` for BMPs; let
   `display_show_image()` handle PNG/JPEG natively.
 
-- [ ] **3b. Add `wait_for_serial()` after GPIO wakeup** — On USB CDC boards with
+- [x] **3b. Add `wait_for_serial()` after GPIO wakeup** ✅ DONE — On USB CDC boards with
   `WAIT_FOR_SERIAL` defined, wait up to 2s for the serial port to attach after button
   wakeup. Without this, early log lines after a button press are lost on USB CDC builds.
 
-- [ ] **3c. NTP sync after WiFi connect** — Call `configTime(0, 0, "time.google.com",
+- [x] **3c. NTP sync after WiFi connect** ✅ DONE — Call `configTime(0, 0, "time.google.com",
   "time.cloudflare.com")` after WiFi connects. Not required (setInsecure skips cert
   validation) but fixes log timestamps and future-proofs against pinned certs. Log only;
   don't block on failure.

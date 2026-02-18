@@ -191,6 +191,20 @@ void setup()
     {
         Log_info("GPIO wakeup detected");
         auto button = read_button_presses();
+
+#ifdef WAIT_FOR_SERIAL
+        // read_button_presses() blocks for the full press duration (up to 15s for
+        // SoftReset). USB CDC serial may not be attached at wakeup but will be by
+        // the time the button is released. Wait here so the button-result log and
+        // every subsequent line are captured — the top-of-setup wait may have already
+        // expired during the button read.
+        {
+            unsigned long ws = millis();
+            while (!Serial && millis() - ws < 2000) { delay(100); }
+        }
+#endif
+
+        Log_info("Button result: %d", (int)button);
         switch (button)
         {
         case LongPress:
@@ -262,6 +276,21 @@ void setup()
         }
         Log_info("WiFi connected via portal");
         preferences.putInt(PREF_WIFI_RETRY_COUNT, 1);  // reset backoff on success
+    }
+
+    // ---- NTP clock sync (best-effort) ----
+    // Not required for HTTPS — setInsecure() skips cert date validation — but
+    // corrects log timestamps and future-proofs against pinned certificates.
+    // 2s timeout; failure is logged but does not block the main flow.
+    configTime(0, 0, "time.google.com", "time.cloudflare.com");
+    {
+        struct tm timeinfo;
+        if (getLocalTime(&timeinfo, 2000))
+            Log_info("NTP synced: %04d-%02d-%02d %02d:%02d:%02d",
+                     timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
+                     timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+        else
+            Log_info("NTP sync timed out — continuing with system clock");
     }
 
     // ---- Load config from NVS ----
@@ -369,18 +398,44 @@ void setup()
     }
     free(image_enc);
 
-    // ---- Parse and display BMP ----
-    bool image_reverse = false;
-    bmp_err_e bmp_res = parseBMPHeader(image_dec, image_reverse);
-
-    if (bmp_res != BMP_NO_ERR)
+    // ---- Detect format and display image ----
+    // display_show_image() does its own magic-byte detection internally (PNG/JPEG/
+    // BMP/G5). We pre-check here to: (a) validate BMP headers for a clear error
+    // message, and (b) reject completely unknown formats before the display driver
+    // sees them.
+    if (image_dec_size < 4)
     {
-        Log_error("BMP parse error: %d", bmp_res);
+        Log_error("Image too small to detect format: %d bytes", image_dec_size);
         free(image_dec);
         errorAndSleep(MSG_FORMAT_ERROR, 300);
     }
 
-    Log_info("Displaying image (%d bytes)", image_dec_size);
+    bool is_bmp  = (image_dec[0] == 'B'  && image_dec[1] == 'M');
+    bool is_png  = (image_dec[0] == 0x89 && image_dec[1] == 0x50);  // PNG magic
+    bool is_jpeg = (image_dec[0] == 0xFF && image_dec[1] == 0xD8);  // JPEG SOI
+
+    if (is_bmp)
+    {
+        // Validate BMP header: dimensions must be 800x480, 1-bpp, correct color table.
+        // parseBMPHeader() also sets image_reverse if the color table is inverted.
+        bool image_reverse = false;
+        bmp_err_e bmp_res = parseBMPHeader(image_dec, image_reverse);
+        if (bmp_res != BMP_NO_ERR)
+        {
+            Log_error("BMP header invalid (error %d)", bmp_res);
+            free(image_dec);
+            errorAndSleep(MSG_FORMAT_ERROR, 300);
+        }
+    }
+    else if (!is_png && !is_jpeg)
+    {
+        Log_error("Unknown image format (magic: %02x %02x)", image_dec[0], image_dec[1]);
+        free(image_dec);
+        errorAndSleep(MSG_FORMAT_ERROR, 300);
+    }
+
+    Log_info("Displaying %s image (%d bytes)",
+             is_bmp ? "BMP" : is_png ? "PNG" : "JPEG", image_dec_size);
     display_show_image(image_dec, image_dec_size, true);
     free(image_dec);
 
