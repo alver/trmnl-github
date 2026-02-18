@@ -29,9 +29,11 @@ RTC_DATA_ATTR uint8_t playlist_index = 0;
 RTC_DATA_ATTR uint8_t need_to_refresh_display = 1;
 
 // ---- NVS keys for our config ----
-#define PREF_MANIFEST_URL "manifest_url"
-#define PREF_AES_KEY_HEX  "aes_key_hex"
-#define PREF_IMAGES_BASE  "images_base"
+#define PREF_MANIFEST_URL    "manifest_url"
+#define PREF_AES_KEY_HEX     "aes_key_hex"
+#define PREF_IMAGES_BASE     "images_base"
+#define PREF_WIFI_RETRY_COUNT "wifi_retry"   // progressive WiFi backoff counter
+#define PREF_API_RETRY_COUNT  "api_retry"    // progressive download backoff counter
 
 
 static unsigned long startup_time = 0;
@@ -109,12 +111,54 @@ static void resetDeviceCredentials()
     ESP.restart();
 }
 
-// ---- Show error on display and sleep ----
+// ---- Show error on display and sleep (fixed duration, for config/decrypt errors) ----
 static void errorAndSleep(MSG msg, uint32_t sleep_seconds)
 {
     display_show_msg(const_cast<uint8_t *>(logo_medium), msg);
     display_sleep();
     goToSleep(sleep_seconds);
+}
+
+// ---- WiFi failure with progressive backoff ----
+// Retry schedule: 60s → 180s → 300s → 900s (normal interval)
+// Counter stored in NVS; reset to 1 on successful WiFi connect.
+static void wifiErrorAndSleep(MSG msg)
+{
+    int retries = preferences.getInt(PREF_WIFI_RETRY_COUNT, 1);
+    uint32_t sleep_secs;
+    switch (retries)
+    {
+    case 1:  sleep_secs = 60;                break;
+    case 2:  sleep_secs = 180;               break;
+    case 3:  sleep_secs = 300;               break;
+    default: sleep_secs = SLEEP_TIME_TO_SLEEP; break;
+    }
+    Log_error("WiFi failed (attempt %d), sleeping %ds", retries, sleep_secs);
+    preferences.putInt(PREF_WIFI_RETRY_COUNT, retries + 1);
+    display_show_msg(const_cast<uint8_t *>(logo_medium), msg);
+    display_sleep();
+    goToSleep(sleep_secs);
+}
+
+// ---- Download/network failure with progressive backoff ----
+// Retry schedule: 15s → 30s → 60s → 900s (normal interval)
+// Counter stored in NVS; reset to 1 on successful image display.
+static void downloadErrorAndSleep(MSG msg)
+{
+    int retries = preferences.getInt(PREF_API_RETRY_COUNT, 1);
+    uint32_t sleep_secs;
+    switch (retries)
+    {
+    case 1:  sleep_secs = 15;                break;
+    case 2:  sleep_secs = 30;                break;
+    case 3:  sleep_secs = 60;                break;
+    default: sleep_secs = SLEEP_TIME_TO_SLEEP; break;
+    }
+    Log_error("Download failed (attempt %d), sleeping %ds", retries, sleep_secs);
+    preferences.putInt(PREF_API_RETRY_COUNT, retries + 1);
+    display_show_msg(const_cast<uint8_t *>(logo_medium), msg);
+    display_sleep();
+    goToSleep(sleep_secs);
 }
 
 // ---- Main setup (runs on every wake) ----
@@ -201,11 +245,10 @@ void setup()
         if (!WifiCaptivePortal.autoConnect())
         {
             Log_error("WiFi connection failed");
-            display_show_msg(const_cast<uint8_t *>(logo_medium), WIFI_FAILED);
-            display_sleep();
-            goToSleep(60); // retry in 1 minute
+            wifiErrorAndSleep(WIFI_FAILED);  // does not return
         }
         Log_info("WiFi connected: %s", WiFi.localIP().toString().c_str());
+        preferences.putInt(PREF_WIFI_RETRY_COUNT, 1);  // reset backoff on success
     }
     else
     {
@@ -215,12 +258,10 @@ void setup()
         WifiCaptivePortal.setResetSettingsCallback(resetDeviceCredentials);
         if (!WifiCaptivePortal.startPortal())
         {
-            WiFi.disconnect(true);
-            display_show_msg(const_cast<uint8_t *>(logo_medium), WIFI_FAILED);
-            display_sleep();
-            goToSleep(60);
+            wifiErrorAndSleep(WIFI_FAILED);  // does not return
         }
         Log_info("WiFi connected via portal");
+        preferences.putInt(PREF_WIFI_RETRY_COUNT, 1);  // reset backoff on success
     }
 
     // ---- Load config from NVS ----
@@ -244,7 +285,7 @@ void setup()
     if (!manifest_enc)
     {
         Log_error("Failed to download manifest");
-        errorAndSleep(API_UNABLE_TO_CONNECT, 60);
+        downloadErrorAndSleep(API_UNABLE_TO_CONNECT);  // does not return
     }
 
     // Decrypt manifest
@@ -298,8 +339,7 @@ void setup()
     if (!image_enc)
     {
         Log_error("Failed to download image");
-        WiFi.disconnect(true);
-        errorAndSleep(API_IMAGE_DOWNLOAD_ERROR, 60);
+        downloadErrorAndSleep(API_IMAGE_DOWNLOAD_ERROR);  // does not return
     }
 
     // Done with WiFi
@@ -344,6 +384,8 @@ void setup()
     display_show_image(image_dec, image_dec_size, true);
     free(image_dec);
 
+    // Both counters reset — full successful cycle completed
+    preferences.putInt(PREF_API_RETRY_COUNT, 1);
     need_to_refresh_display = 0;
 
     // ---- Sleep ----

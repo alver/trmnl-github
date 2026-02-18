@@ -74,6 +74,7 @@ uint8_t *https_download(const char *url, size_t *out_size)
     // Stream directly into buffer to avoid double allocation from getString()
     WiFiClient *stream = https.getStreamPtr();
     size_t bytes_read = 0;
+    unsigned long last_data_ms = millis();
     while (bytes_read < (size_t)content_size && stream->connected())
     {
         size_t available = stream->available();
@@ -82,6 +83,12 @@ uint8_t *https_download(const char *url, size_t *out_size)
             size_t to_read = min(available, (size_t)content_size - bytes_read);
             size_t got = stream->readBytes(buffer + bytes_read, to_read);
             bytes_read += got;
+            last_data_ms = millis();  // reset idle timer on any data
+        }
+        else if (millis() - last_data_ms > 5000)
+        {
+            Log_error("Stream stalled — no data for 5s (%d/%d bytes)", bytes_read, content_size);
+            break;
         }
         else
         {

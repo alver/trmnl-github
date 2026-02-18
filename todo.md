@@ -24,15 +24,15 @@
 
 ## Phase 2 — Reliability Fixes
 
-- [ ] **2a. WiFi retry backoff** — All WiFi failures currently sleep a flat 60s. Implement
+- [x] **2a. WiFi retry backoff** ✅ DONE — All WiFi failures currently sleep a flat 60s. Implement
   progressive backoff using `PREFERENCES_CONNECT_WIFI_RETRY_COUNT` in NVS:
   retry 1 → 60s, retry 2 → 180s, retry 3 → 300s, default → 900s.
   Reset counter on successful connect.
 
-- [ ] **2b. Manifest/image download retry backoff** — Separate NVS counter for API/download
+- [x] **2b. Manifest/image download retry backoff** ✅ DONE — Separate NVS counter for API/download
   failures. Same 60/180/300/900s pattern. Reset counter on successful download.
 
-- [ ] **2c. Stream read timeout in `github_client.cpp`** — The streaming loop
+- [x] **2c. Stream read timeout in `github_client.cpp`** ✅ DONE — The streaming loop
   `while (bytes_read < content_size && stream->connected())` has no timeout guard.
   Add `millis()` check: if no bytes received for >5s, break and return nullptr.
 
