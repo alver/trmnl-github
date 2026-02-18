@@ -59,7 +59,7 @@
 
 ## Phase 4 — Extensibility
 
-- [ ] **4a. DoubleClick → force next screen** — Currently DoubleClick logs "forcing refresh"
+- [x] **4a. DoubleClick → force next screen** ✅ DONE — basic wiring done in Phase 1; Phase 4 fixed % 255 bug, added double_clicked flag to reset API retry counter after preferences.begin(), added prev→next index log — Currently DoubleClick logs "forcing refresh"
   and does nothing different. Wire it to advance (or reset) `playlist_index` in RTC memory
   so the next screen is shown instead of cycling normally. Could also be "restart playlist"
   (reset index to 0).

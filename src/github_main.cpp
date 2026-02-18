@@ -184,6 +184,10 @@ void setup()
 
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
+    // Tracks whether a DoubleClick occurred so we can clear download backoff
+    // after preferences.begin() (preferences is not open yet during button reading).
+    bool double_clicked = false;
+
     // Handle button presses on GPIO wakeup
     if (wakeup_reason == ESP_SLEEP_WAKEUP_GPIO ||
         wakeup_reason == ESP_SLEEP_WAKEUP_EXT0 ||
@@ -212,10 +216,18 @@ void setup()
             WifiCaptivePortal.resetSettings();
             break;
         case DoubleClick:
-            // Advance to next screen in playlist immediately
-            Log_info("Double click: advancing playlist index");
-            playlist_index = (playlist_index + 1) % 255;  // clamped later vs screen_count
+        {
+            // Advance playlist so this wake shows the screen AFTER the one that
+            // would normally have been displayed. playlist_index++ is safe: uint8_t
+            // wraps 255→0 and the clamp below (playlist_index >= screen_count → 0)
+            // handles any value correctly. Do NOT use % 255 — that maps 254→0.
+            uint8_t prev = playlist_index;
+            playlist_index++;
+            double_clicked = true;
+            Log_info("Double click: playlist index %d → %d (clamped after manifest load)",
+                     prev, playlist_index);
             break;
+        }
         case SoftReset:
             Log_info("Soft reset: factory resetting device");
             resetDeviceCredentials();  // does not return
@@ -230,6 +242,14 @@ void setup()
     {
         Log_fatal("Preferences init failed");
         ESP.restart();
+    }
+
+    // DoubleClick: clear any accumulated download backoff so the user-requested
+    // refresh isn't delayed by a previous failure's retry counter.
+    if (double_clicked)
+    {
+        preferences.putInt(PREF_API_RETRY_COUNT, 1);
+        Log_info("Double click: download retry counter reset");
     }
 
     // Init display
