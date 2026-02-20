@@ -15,4 +15,6 @@ sdkconfig.*
 builds/*
 managed_components/
 venv/
+my_content/
+tmp/
 src/secrets.h
