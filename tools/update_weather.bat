@@ -6,14 +6,18 @@ setlocal enabledelayedexpansion
 set PATH=c:\utils\ImageMagick-7.0.10-Q16-HDRI;%PATH%
 
 :: ── Configuration ──────────────────────────────────────────────
+:: Pass city as first argument, e.g.: update_weather.bat berlin
+:: Defaults to "munich" if omitted.
 set "ROOT=%CD%"
 set "CONTENT_DIR=%ROOT%\my_content"
 set "CONTENT_REPO=git@github.com:alver/trmnl-content.git"
 set "KEY_FILE=%ROOT%\.key"
 set "TOOLS=%ROOT%\tools"
 set "TMP=%ROOT%\tmp"
-set "BMP_FILE=%TMP%\weather.bmp"
-set "ENC_FILE=%CONTENT_DIR%\images\weather.enc"
+
+if "%~1"=="" ( set "CITY=munich" ) else ( set "CITY=%~1" )
+set "BMP_FILE=%TMP%\weather_%CITY%.bmp"
+set "ENC_FILE=%CONTENT_DIR%\images\weather_%CITY%.enc"
 
 :: ── Activate venv ────────────────────────────────────────────
 if not exist "%ROOT%\venv\Scripts\activate.bat" (
@@ -40,14 +44,12 @@ if not exist "%CONTENT_DIR%\.git" (
 )
 
 :: ── Step 3: Render weather image ──────────────────────────────
-echo Rendering weather...
-pushd "%TMP%"
-python "%TOOLS%\weather.py"
-if errorlevel 1 ( echo ERROR: weather.py failed & popd & exit /b 1 )
-popd
+echo Rendering weather for %CITY%...
+python "%TOOLS%\weather.py" --city "%CITY%" --out-dir "%TMP%"
+if errorlevel 1 ( echo ERROR: weather.py failed & exit /b 1 )
 
 if not exist "%BMP_FILE%" (
-    echo ERROR: weather.bmp was not created
+    echo ERROR: %BMP_FILE% was not created
     exit /b 1
 )
 
@@ -74,8 +76,8 @@ popd
 
 :: ── Step 6: Cleanup tmp ─────────────────────────────────────
 echo Cleaning up...
-del /q "%TMP%\weather.html" 2>nul
-del /q "%TMP%\weather.png"  2>nul
-del /q "%BMP_FILE%"         2>nul
+del /q "%TMP%\weather_%CITY%.html" 2>nul
+del /q "%TMP%\weather_%CITY%.png"  2>nul
+del /q "%BMP_FILE%"                2>nul
 
 echo Done.

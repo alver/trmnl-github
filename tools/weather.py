@@ -7,21 +7,34 @@ Deps:
     playwright install chromium
 
 Launch:
-    python weather.py
+    python weather.py                  # defaults to munich
+    python weather.py --city berlin
+    python weather.py --city new_york
+
+City configs are stored in tools/cities.json next to this script.
+Output files are named weather_<city>.html/.png/.bmp
 """
 
+import argparse
+import json
 import requests
 import subprocess
 from pathlib import Path
 from datetime import datetime
 from jinja2 import Template
 
-# Configs
-LAT      = 48.1351
-LON      = 11.5820
-TIMEZONE = "Europe/Berlin"
-CITY     = "München"
-BASE_URL = "https://trmnl.com"
+BASE_URL   = "https://trmnl.com"
+CITIES_JSON = Path(__file__).parent / "cities.json"
+
+
+def load_city(slug: str) -> dict:
+    with open(CITIES_JSON, encoding="utf-8") as f:
+        cities = json.load(f)
+    if slug not in cities:
+        available = ", ".join(sorted(cities))
+        raise SystemExit(f"Unknown city '{slug}'. Available: {available}")
+    return cities[slug]
+
 
 # WMO code: SVG icon name
 WMO_TO_ICON = {
@@ -93,12 +106,12 @@ def fmt_time(iso_str):
     return iso_str[11:16] if iso_str else "—"
 
 
-def fetch_weather():
+def fetch_weather(lat, lon, timezone):
     r = requests.get(
         "https://api.open-meteo.com/v1/forecast",
         params={
-            "latitude":  LAT,
-            "longitude": LON,
+            "latitude":  lat,
+            "longitude": lon,
             "current": [
                 "temperature_2m", "apparent_temperature",
                 "weathercode", "windspeed_10m",
@@ -111,7 +124,7 @@ def fetch_weather():
                 "precipitation_probability_max",
                 "sunrise", "sunset",
             ],
-            "timezone":     TIMEZONE,
+            "timezone":     timezone,
             "forecast_days": 3,
         },
         timeout=10,
@@ -120,7 +133,7 @@ def fetch_weather():
     return r.json()
 
 
-def build_context(data):
+def build_context(data, city_name):
     cur   = data["current"]
     daily = data["daily"]
     now   = datetime.now()
@@ -141,7 +154,7 @@ def build_context(data):
 
     return {
         "base_url":               BASE_URL,
-        "city":                   CITY,
+        "city":                   city_name,
         "date_str":               f"{MONTHS_EN[now.month-1]} {now.day}, {DAYS_EN[now.weekday()]}",
         "temperature":            round(cur["temperature_2m"]),
         "feels_like":             round(cur["apparent_temperature"]),
@@ -304,14 +317,14 @@ TEMPLATE = """\
 
 
 # Processing pipeline
-def render_html(ctx, path="weather.html"):
+def render_html(ctx, path):
     html = Template(TEMPLATE).render(**ctx)
     Path(path).write_text(html, encoding="utf-8")
     print(f"  HTML → {path}")
     return path
 
 
-def screenshot(html_path, png_path="weather.png"):
+def screenshot(html_path, png_path):
     from playwright.sync_api import sync_playwright
     abs_path = Path(html_path).absolute().as_posix()
     with sync_playwright() as p:
@@ -327,7 +340,7 @@ def screenshot(html_path, png_path="weather.png"):
     return png_path
 
 
-def to_bmp(png_path, bmp_path="weather.bmp"):
+def to_bmp(png_path, bmp_path):
     subprocess.run([
         "magick", png_path,
         "-monochrome",
@@ -340,16 +353,38 @@ def to_bmp(png_path, bmp_path="weather.bmp"):
     return bmp_path
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Render TRMNL weather image")
+    parser.add_argument(
+        "--city", default="munich",
+        help="City slug from cities.json (default: munich)",
+    )
+    parser.add_argument(
+        "--out-dir", default=".",
+        help="Output directory for generated files (default: current dir)",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args     = parse_args()
+    slug     = args.city.lower()
+    out_dir  = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    city_cfg = load_city(slug)
+    stem     = f"weather_{slug}"
+
+    print(f"City: {city_cfg['name']} ({slug})")
     print("Fetching Open-Meteo data...")
-    data = fetch_weather()
-    ctx  = build_context(data)
+    data = fetch_weather(city_cfg["lat"], city_cfg["lon"], city_cfg["timezone"])
+    ctx  = build_context(data, city_cfg["name"])
     print(f"  {ctx['temperature']}°, {ctx['conditions']}, humidity {ctx['humidity']}%")
     print()
     print("Rendering...")
-    html = render_html(ctx)
-    png  = screenshot(html)
-    bmp  = to_bmp(png)
+    html = render_html(ctx, out_dir / f"{stem}.html")
+    png  = screenshot(str(html), str(out_dir / f"{stem}.png"))
+    bmp  = to_bmp(png, str(out_dir / f"{stem}.bmp"))
     print()
     print("Done:")
     print(f"  Browser:  {html}")
